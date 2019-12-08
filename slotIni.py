@@ -4,6 +4,7 @@ import random
 import time
 from tkinter import *
 import tkinter.font
+import tkinter.simpledialog
 
 # Define my class
 
@@ -19,6 +20,7 @@ class SlotsIniApp:
     canvasX, canvasY = None, None # full width and height
 
     # Window Elements
+    master = None
     btnContainer, canvas, slotPlaceholder = None, None, None
     scale = 1
 
@@ -30,7 +32,9 @@ class SlotsIniApp:
     toolTotalLegoY = 150
 
     # Current slots on the canvas
-    slots = []
+    slots = {}
+    # Key of the currrently focused slot
+    focusedSlot = None
 
     # The definitive actual size of 1 lego (mm)
     LEGO_UNIT = 7.985
@@ -51,6 +55,8 @@ class SlotsIniApp:
 
         if self.canvasAction == "draw_slot":
             self.addSlot(event)
+        elif self.canvasAction == "edit_slot":
+            self.editSlot()
 
 # Catch Mouse Down
     def leftBtnDown(self, event=None):
@@ -71,33 +77,93 @@ class SlotsIniApp:
             self.slotPlaceholder = self.drawRectangle(
                 self.x1, self.y1, self.xPos, self.yPos, "slot_placeholder")
 
-# Calculate the nearest lego line
+# Calculate the nearest lego position
     def getLegoPos(self, xInput, yInput):
         canvasUnit = self.CANVAS_UNIT * self.scale
         legoX = round((xInput - canvasUnit) / canvasUnit)
         legoY = round(self.toolTotalLegoY - (yInput - canvasUnit) / canvasUnit)
         return legoX, legoY
 
+# Converts lego units to a position on the canvas
     def getCanvasPos(self, xLego, yLego):
         canvasUnit = self.CANVAS_UNIT * self.scale
         x = xLego * canvasUnit + canvasUnit
         y = (self.canvasY + canvasUnit) - (yLego * canvasUnit)
         return x, y
 
+# Asks the user to input a slot name and checks if it's already used.
+    def getSlotName(self, dialog = "Enter slot name"):
+        name = tkinter.simpledialog.askstring("Name Slot", dialog)
+        if name in self.slots:
+            name = self.getSlotName("Name already exists, enter a new name")
+        return name
+
+    def editSlot(self, event=None):
+        self.editDialog = SlotEditDialogue(self)
+
 # Add a new slot to this.slots
     def addSlot(self, event=None):
+        name = self.getSlotName()
+        if not name:
+            # Delete placeholder rectangle
+            if self.slotPlaceholder:
+                self.canvas.delete(self.slotPlaceholder)
+            return
+
         # Snap x and y to nearest coordinates
         legoX1, legoY1 = self.getLegoPos(self.x1, self.y1)
         legoX2, legoY2 = self.getLegoPos(self.x2, self.y2)
-        # Save slot in the slots array
+
+        # Draw the rectangle
         canvasX1, canvasY1 = self.getCanvasPos(legoX1, legoY1)
         canvasX2, canvasY2 = self.getCanvasPos(legoX2, legoY2)
-        
-        self.drawRectangle(canvasX1, canvasY1, canvasX2, canvasY2)
+        rectangle = self.drawRectangle(canvasX1, canvasY1, canvasX2, canvasY2)
+
+        # Add a new Frame on the canvas over the new slot
+        buttonBg, buttonTxt = self.drawSlotExtras(
+            name, canvasX1, canvasY1, canvasX2, canvasY2)
+
+        # Save slot in the slots array
+        self.slots[name] = {
+            "canvasElements" : {
+                "button" : buttonBg,
+                "button_text" : buttonTxt,
+                "rectangle" : rectangle,
+                "lego_text" : None, #TODO
+                "rl_size" : None #TODO, real life size in mm
+            },
+            "legoPos" : {
+                "lowX" : min(legoX1, legoX2),
+                "lowY" : min(legoY1, legoY2),
+                "highX" : max(legoX1, legoX2),
+                "highY" : max(legoY1, legoY2)
+            },
+            "numberX" : 1,
+            "numberY" : 1,
+            "innerSlots" : []
+        }
 
         # Delete placeholder rectangle
         if self.slotPlaceholder:
             self.canvas.delete(self.slotPlaceholder)
+
+    def drawSlotExtras(self, name, x1, y1, x2, y2):
+        lowerX = min(x1, x2)
+        lowerY = min(y1, y2)
+        slotMiddleX = abs(x1 - x2) / 2 + lowerX
+        def setEditSlot(self):
+            self.canvasAction = "edit_slot"
+            self.focusedSlot = name
+
+        buttonBg = self.canvas.create_rectangle(
+            slotMiddleX - 20, lowerY + 40,
+            slotMiddleX + 20, lowerY + 20, 
+            fill="grey40", outline="grey60")
+        buttonTxt = self.canvas.create_text(
+            slotMiddleX, lowerY + 30, text=name)
+        self.canvas.tag_bind(buttonBg, "<Button-1>", setEditSlot(self))
+        self.canvas.tag_bind(buttonTxt, "<Button-1>", setEditSlot(self))
+        return buttonBg, buttonTxt
 
 # Draw Rectangle by type
     def drawRectangle(self, x1, y1, x2, y2, type="slot"):
@@ -109,6 +175,10 @@ class SlotsIniApp:
             border = "black"
             bkgColor = "magenta"
 
+        elif type == "slot_inner":
+            borderWidth = 0
+            bkgColor = "green"
+
         elif type == "slot_placeholder":
             borderWidth = 0
             bkgColor = "cyan"
@@ -116,9 +186,12 @@ class SlotsIniApp:
         return self.canvas.create_rectangle(
             x1, y1, x2, y2, fill=bkgColor, outline=border, width=borderWidth, stipple=stipple)
 
+# Draw a simple line, nothing fancy
     def drawLine(self, x1, y1, x2, y2):
         self.canvas.create_line(x1, y1, x2, y2)
 
+
+# Draw the "background" lego grid based on current scale
     def _initLegoGrid(self):
         unit = self.CANVAS_UNIT * self.scale
         x, y = unit, unit
@@ -163,7 +236,25 @@ class SlotsIniApp:
         self.drawSlots()
         self.canvas.yview_moveto( 1 )
 
+# Draw all the slot from the this.slots dictionary.
     def drawSlots(self):
+        for key, value in self.slots.items():
+
+            lego = value['legoPos']
+            x1, y1 = self.getCanvasPos(lego['lowX'], lego['lowY'])
+            x2, y2 = self.getCanvasPos(lego['highX'], lego['highY'])
+
+            self.drawRectangle(x1, y1, x2, y2)
+
+            if value['innerSlots']:
+                for inner in value['innerSlots']:
+                    ix1, iy1 = self.getCanvasPos(inner['x1'], inner['y1'])
+                    ix2, iy2 = self.getCanvasPos(inner['x2'], inner['y2'])
+                    self.drawRectangle(ix1, iy1, ix2, iy2, "slot_inner")
+            
+            self.drawSlotExtras(key, x1, y1, x2, y2)
+
+    def parseIniFile(self):
         return
 
 
@@ -219,6 +310,64 @@ class SlotsIniApp:
         self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
 
         self._initCanvas()
+
+class SlotEditDialogue:
+    def __init__(self, appInstance):
+        self.appInstance = appInstance
+        self.root = appInstance.master
+        slot = appInstance.slots[appInstance.focusedSlot]
+        self.slot = slot
+
+        self.window = Toplevel(self.root)
+
+        self.inputs = {
+            "numCellsX" : {
+                "name" : "X Number Cells",
+                "value" : slot['numberX']
+            },
+            "numCellsY" : {
+                "name" : "Y Number Cells",
+                "value" : slot['numberY']
+            },
+            "legoWidth" : {
+                "name" : "Cell Lego Width",
+                "value" : slot['highX'] - slot['lowX']
+            },
+            "legoHeight" : {
+                "name" : "Cell Lego Height",
+                "value" : slot['highY'] - slot['lowY']
+            },
+            "startX" : {
+                "name" : "X Start",
+                "value" : slot['lowX']
+            },
+            "endX" : {
+                "name" : "X End",
+                "value" : slot['highX']
+            },
+            "startY" : {
+                "name" : "Y Start",
+                "value" : slot['lowY']
+            },
+            "endY" : {
+                "name" : "Y End",
+                "value" : slot['highY']
+            }
+        }
+
+        count = 0
+        for i in self.inputs.items():
+            print(i)
+            count += 1
+
+    def save(self):
+        return
+
+    def createInput(self, name, value, count):
+        Label(self.window, text = name).grid(row = count)
+        entry = Entry(self.window)
+        entry.grid(row = count, column = 1)
+        return entry
 
 
 root = Tk()
