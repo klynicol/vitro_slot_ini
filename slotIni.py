@@ -2,9 +2,11 @@ import sys
 import math
 import random
 import time
+from functools import partial
 from tkinter import *
 import tkinter.font
 import tkinter.simpledialog
+import tkinter.messagebox
 
 # Define my class
 
@@ -17,11 +19,13 @@ class SlotsIniApp:
     xPos = None
     yPos = None
     x1, y1, x2, y2 = None, None, None, None
+    legoX1, legoY1 = 0, 0
     canvasX, canvasY = None, None # full width and height
 
     # Window Elements
     master = None
-    btnContainer, canvas, slotPlaceholder = None, None, None
+    btnContainer, canvas, slotPlaceholder, drawDistance = None, None, None, None
+    editDialog = None #Object created when editing a slot
     scale = 1
 
     # Variables specific to the laser machine
@@ -36,6 +40,7 @@ class SlotsIniApp:
     # Key of the currrently focused slot
     focusedSlot = None
 
+    boldFont = None
     # The definitive actual size of 1 lego (mm)
     LEGO_UNIT = 7.985
     # A one to one relation with lego unit to draw "snapping" lines
@@ -55,8 +60,6 @@ class SlotsIniApp:
 
         if self.canvasAction == "draw_slot":
             self.addSlot(event)
-        elif self.canvasAction == "edit_slot":
-            self.editSlot()
 
 # Catch Mouse Down
     def leftBtnDown(self, event=None):
@@ -64,18 +67,27 @@ class SlotsIniApp:
 
         self.x1 = self.canvas.canvasx(event.x)
         self.y1 = self.canvas.canvasy(event.y)
+        self.legoX1, self.legoY1 = self.getLegoPos(self.x1, self.y1)
 
 # Catch Mouse Move
     def motion(self, event=None):
         self.xPos = self.canvas.canvasx(event.x)
         self.yPos = self.canvas.canvasy(event.y)
+        # Print lego position on the menu
+        legoX, legoY = self.getLegoPos(self.xPos, self.yPos)
         self.coords.delete(1.0,END)
-        self.coords.insert(INSERT, "{x},{y}".format(x=self.xPos, y=self.yPos))
+        self.coords.insert(INSERT, "{x},{y}".format(x=legoX, y=legoY))
+
         if self.leftBtn == "down":
-            if self.slotPlaceholder:
-                self.canvas.delete(self.slotPlaceholder)
+            self.clearPlaceholders()
+            # Draw a placeholder rectangle as a visual element
             self.slotPlaceholder = self.drawRectangle(
                 self.x1, self.y1, self.xPos, self.yPos, "slot_placeholder")
+            # Print the length and width of the cell that will be drawn
+            difX = abs(self.legoX1 - legoX)
+            difY = abs(self.legoY1 - legoY)
+            self.drawDistance = self.canvas.create_text(
+                self.xPos, self.yPos - 10, text = "{x}, {y}".format(x=difX, y=difY), font=self.boldFont, fill="green")
 
 # Calculate the nearest lego position
     def getLegoPos(self, xInput, yInput):
@@ -98,16 +110,43 @@ class SlotsIniApp:
             name = self.getSlotName("Name already exists, enter a new name")
         return name
 
-    def editSlot(self, event=None):
+# Opens the slots.ini file and transposes the info into this.slots
+    def parseIniFile(self):
+        file = open("slots.ini", "r+")
+        #for line in file:
+            #TODO
+
+# Creates an instance of SlotEditDialogue.
+    def editSlot(self, name):
+        self.focusedSlot = name
+        # Create a new dialogue object
+        ''' Not sure what the auto cleanup is like when instatiating new object :-/
+        if self.editDialog:
+            del self.editDialog
         self.editDialog = SlotEditDialogue(self)
+        '''
+        SlotEditDialogue(self)
+
+# Deletes a slot from this.slots
+    def deleteSlot(self, slot = None):
+        if not slot:
+            slot = self.focusedSlot
+        del self.slots[slot]
+        self._initCanvas()
+
+# Clear placeholders that were used to draw a slot
+    def clearPlaceholders(self):
+        if self.slotPlaceholder:
+            self.canvas.delete(self.slotPlaceholder)
+        if self.drawDistance:
+            self.canvas.delete(self.drawDistance)
 
 # Add a new slot to this.slots
     def addSlot(self, event=None):
         name = self.getSlotName()
         if not name:
             # Delete placeholder rectangle
-            if self.slotPlaceholder:
-                self.canvas.delete(self.slotPlaceholder)
+            self.clearPlaceholders()
             return
 
         # Snap x and y to nearest coordinates
@@ -120,14 +159,14 @@ class SlotsIniApp:
         rectangle = self.drawRectangle(canvasX1, canvasY1, canvasX2, canvasY2)
 
         # Add a new Frame on the canvas over the new slot
-        buttonBg, buttonTxt = self.drawSlotExtras(
+        button, buttonWindow = self.drawSlotExtras(
             name, canvasX1, canvasY1, canvasX2, canvasY2)
 
         # Save slot in the slots array
         self.slots[name] = {
             "canvasElements" : {
-                "button" : buttonBg,
-                "button_text" : buttonTxt,
+                "button" : button,
+                "button_window" : buttonWindow,
                 "rectangle" : rectangle,
                 "lego_text" : None, #TODO
                 "rl_size" : None #TODO, real life size in mm
@@ -144,26 +183,66 @@ class SlotsIniApp:
         }
 
         # Delete placeholder rectangle
-        if self.slotPlaceholder:
-            self.canvas.delete(self.slotPlaceholder)
+        self.clearPlaceholders()
+
+    def updateFocusedFromInputs(self, xCount, yCount, xStart, yStart, xEnd, yEnd):
+        slot = self.slots[self.focusedSlot]
+
+        # Calculate the width and height of the slot in legos
+        legoWidth = xEnd - xStart
+        legoHeight = yEnd - yStart
+
+        cells = self.calcCells(xStart, yStart, xCount, yCount, legoWidth, legoHeight)
+        
+        if not cells:
+            tkinter.messagebox.showinfo("Fault", "Slot is not devisable by count")
+            return False
+        
+        slot['innerSlots'] = cells
+        slot['numberX'] = xCount
+        slot['numberY'] = yCount
+        slot['legoPos']['lowX'] = xStart
+        slot['legoPos']['highX'] = xEnd
+        slot['legoPos']['lowY'] = yStart
+        slot['legoPos']['highY'] = yEnd
+
+        self._initCanvas()
+        return True
+
+# Returns an array of lego dimension for drawing cells inside a slot
+    def calcCells(self, xStart, yStart, xCount, yCount, slotWidth, slotHeight):
+        x_spacers = (xCount - 1) * 2
+        y_spacers = (yCount - 1) * 2
+        #Check if the number is divisible in both directions
+        if (slotWidth - x_spacers) % xCount != 0 or (slotHeight - y_spacers) % yCount != 0:
+            return False
+        
+        # We are good, build the cell dictionaries and push to the array
+        cells = []
+        x_size = (slotWidth - x_spacers) / xCount
+        y_size = (slotHeight - y_spacers) / yCount
+        x = xStart
+        for xx in range(0, xCount):
+            y = yStart
+            for yy in range(0, yCount):
+                cells.append({
+                    "lowX" : x,
+                    "highX" : x + x_size,
+                    "lowY" : y,
+                    "highY" : y + y_size
+                })
+                y += y_size + 2
+            x += x_size + 2
+        return cells
 
     def drawSlotExtras(self, name, x1, y1, x2, y2):
         lowerX = min(x1, x2)
         lowerY = min(y1, y2)
         slotMiddleX = abs(x1 - x2) / 2 + lowerX
-        def setEditSlot(self):
-            self.canvasAction = "edit_slot"
-            self.focusedSlot = name
 
-        buttonBg = self.canvas.create_rectangle(
-            slotMiddleX - 20, lowerY + 40,
-            slotMiddleX + 20, lowerY + 20, 
-            fill="grey40", outline="grey60")
-        buttonTxt = self.canvas.create_text(
-            slotMiddleX, lowerY + 30, text=name)
-        self.canvas.tag_bind(buttonBg, "<Button-1>", setEditSlot(self))
-        self.canvas.tag_bind(buttonTxt, "<Button-1>", setEditSlot(self))
-        return buttonBg, buttonTxt
+        button = Button(self.master, text = name, command = partial(self.editSlot, name))
+        btnWindow = self.canvas.create_window( slotMiddleX, lowerY + 30, anchor=NW, window = button)
+        return button, btnWindow
 
 # Draw Rectangle by type
     def drawRectangle(self, x1, y1, x2, y2, type="slot"):
@@ -177,7 +256,7 @@ class SlotsIniApp:
 
         elif type == "slot_inner":
             borderWidth = 0
-            bkgColor = "green"
+            bkgColor = "spring green"
 
         elif type == "slot_placeholder":
             borderWidth = 0
@@ -248,13 +327,14 @@ class SlotsIniApp:
 
             if value['innerSlots']:
                 for inner in value['innerSlots']:
-                    ix1, iy1 = self.getCanvasPos(inner['x1'], inner['y1'])
-                    ix2, iy2 = self.getCanvasPos(inner['x2'], inner['y2'])
+                    ix1, iy1 = self.getCanvasPos(inner['lowX'], inner['lowY'])
+                    ix2, iy2 = self.getCanvasPos(inner['highX'], inner['highY'])
                     self.drawRectangle(ix1, iy1, ix2, iy2, "slot_inner")
             
             self.drawSlotExtras(key, x1, y1, x2, y2)
 
     def parseIniFile(self):
+        #TODO
         return
 
 
@@ -265,6 +345,7 @@ class SlotsIniApp:
         pad = 70
         fullX = root.winfo_screenwidth()
         fullY = root.winfo_screenheight()
+        self.boldFont = tkinter.font.Font(family="Helvetica", size=12, weight="bold")
 
         root.geometry("{0}x{1}+0+0".format(
             fullX-pad, fullY-pad))
@@ -314,59 +395,108 @@ class SlotsIniApp:
 class SlotEditDialogue:
     def __init__(self, appInstance):
         self.appInstance = appInstance
-        self.root = appInstance.master
-        slot = appInstance.slots[appInstance.focusedSlot]
-        self.slot = slot
-
-        self.window = Toplevel(self.root)
+        self.window = Toplevel(appInstance.master)
 
         self.inputs = {
             "numCellsX" : {
-                "name" : "X Number Cells",
-                "value" : slot['numberX']
+                "name" : "X Number Cells"
             },
             "numCellsY" : {
-                "name" : "Y Number Cells",
-                "value" : slot['numberY']
+                "name" : "Y Number Cells"
             },
             "legoWidth" : {
-                "name" : "Cell Lego Width",
-                "value" : slot['highX'] - slot['lowX']
+                "name" : "Cell Lego Width"
             },
             "legoHeight" : {
-                "name" : "Cell Lego Height",
-                "value" : slot['highY'] - slot['lowY']
+                "name" : "Cell Lego Height"
             },
             "startX" : {
-                "name" : "X Start",
-                "value" : slot['lowX']
+                "name" : "X Start"
             },
             "endX" : {
-                "name" : "X End",
-                "value" : slot['highX']
+                "name" : "X End"
             },
             "startY" : {
-                "name" : "Y Start",
-                "value" : slot['lowY']
+                "name" : "Y Start"
             },
             "endY" : {
                 "name" : "Y End",
-                "value" : slot['highY']
             }
         }
 
-        count = 0
-        for i in self.inputs.items():
-            print(i)
-            count += 1
+        row = 0
+        for key, value in self.inputs.items():
+            self.inputs[key]['input'] = self.createInput(value['name'], row)
+            row += 1
+
+        self.updateInputs()
+
+        # Create save and cancel buttons
+        row += 1
+        self.saveBtn = Button(self.window, text = "Update", command = self.save)
+        self.saveBtn.grid(row = row)
+        # Create delete button
+        self.deleteBtn = Button(self.window, text = "Delete", command = self.delete)
+        self.deleteBtn.grid(row = row, column = 1)
+
+# Re-pulls data from the main class into the dialogue.
+    def updateInputs(self):
+        slot = self.appInstance.slots[self.appInstance.focusedSlot]
+        self.inputs['numCellsX']['value'] = slot['numberX']
+        self.inputs['numCellsY']['value'] = slot['numberY']
+        self.inputs['legoWidth']['value'] = slot['legoPos']['highX'] - slot['legoPos']['lowX']
+        self.inputs['legoHeight']['value'] = slot['legoPos']['highY'] - slot['legoPos']['lowY']
+        self.inputs['startX']['value'] = slot['legoPos']['lowX']
+        self.inputs['endX']['value'] = slot['legoPos']['highX']
+        self.inputs['startY']['value'] = slot['legoPos']['lowY']
+        self.inputs['endY']['value'] = slot['legoPos']['highY']
+        for key, value in self.inputs.items():
+            value['input'].delete(0, END)
+            value['input'].insert(0, value['value'])
+
 
     def save(self):
-        return
+        # addedCells = False
+        # changed = False
+        # for key, value in self.inputs.items():
+        #     read = int(value['input'].get())
+        #     if read != value['value']:
+        #         if key in ['numCellsX', 'numCellsY'] and not addedCells:
+        #             # Add cells to the slot
+        #             addedCells = True
+        #             self.appInstance.addSlotCells(
+        #                 int(self.inputs['numCellsX']['input'].get()), int(self.inputs['numCellsY']['input'].get()))
+        #             changed = True
+        #         elif key in ['startX', 'endX', 'startY', 'endY']:
+        #             # Just edit the slot itself. It will re-draw correctly
+        #             self.appInstance.updateSlotLegoPos(value['key'], read)
+        #             changed = True
+        # # They changed something, re-draw the canvas    
+        # if changed:
+        #     self.appInstance.updateFocusedFromInputs()
+        #     self.appInstance._initCanvas()
+        #     self.updateInputs()
+        self.appInstance.updateFocusedFromInputs(
+            int(self.inputs['numCellsX']['input'].get()),
+            int(self.inputs['numCellsY']['input'].get()),
+            int(self.inputs['startX']['input'].get()),
+            int(self.inputs['startY']['input'].get()),
+            int(self.inputs['endX']['input'].get()),
+            int(self.inputs['endY']['input'].get())
+        )
+        self.updateInputs()
 
-    def createInput(self, name, value, count):
-        Label(self.window, text = name).grid(row = count)
+
+
+    def delete(self):
+        answer = tkinter.messagebox.askyesno("Delete", "Are you sure you want to delete this slot?")
+        if answer:
+            self.appInstance.deleteSlot()
+
+    def createInput(self, name, row):
+        Label(self.window, text = name).grid(row = row)
         entry = Entry(self.window)
-        entry.grid(row = count, column = 1)
+        entry.grid(row = row, column = 1)
         return entry
 
 
