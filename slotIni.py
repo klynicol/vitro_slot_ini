@@ -2,6 +2,7 @@ import sys
 import math
 import random
 import time
+import re
 from functools import partial
 from tkinter import *
 import tkinter.font
@@ -12,6 +13,8 @@ import tkinter.messagebox
 
 
 class SlotsIniApp:
+
+    iniFile = None
 
     # Positions and actions
     canvasAction = "draw_slot"
@@ -28,12 +31,14 @@ class SlotsIniApp:
     editDialog = None #Object created when editing a slot
     scale = 1
 
-    # Variables specific to the laser machine
-    toolStartX = 0
-    toolStartY = 0
-    toolStartZ = 0
-    toolTotalLegoX = 200
-    toolTotalLegoY = 150
+    # Variables specific to the laser machine, pulled from slotApp.ini
+    toolStartX = None
+    toolStartY = None
+    toolStartZ = None
+    toolTotalLegoX = None
+    toolTotalLegoY = None
+    toolLegoUnit = None
+    machineName = "Change Me"
 
     # Current slots on the canvas
     slots = {}
@@ -47,6 +52,8 @@ class SlotsIniApp:
     CANVAS_UNIT = 12
     SCALE_UP = 1.1
     SCALE_DOWN = 0.9
+
+    INI_FILE = "slots.ini"
 
 # Catch Mouse Up
     def leftBtnUp(self, event=None):
@@ -112,9 +119,40 @@ class SlotsIniApp:
 
 # Opens the slots.ini file and transposes the info into this.slots
     def parseIniFile(self):
-        file = open("slots.ini", "r+")
-        #for line in file:
-            #TODO
+        file = open(self.INI_FILE, "r")
+
+        block = None
+        slots = {} # Temp Bin to throw slot information into
+        for line in file:
+            if re.match(r'^\[', line): # Are we on a block line
+                block = re.search(r'\[(.*?)\]', line).group(1)
+            elif block == 'Machine_Name': # Next line is machine name
+                self.machineName = line.split('=')[1].strip()
+                block = None
+            elif block and line.strip() != "": # We have information to parse
+                setting = line.split('=')
+                if not block in slots:
+                    slots[block] = {}
+                key = setting[0].strip()
+                slots[block][key] = float(setting[1].strip())
+
+        # Iterate over newly created slots and build slots for the class
+        print(slots)
+        for key, value in slots.items():
+            self.slots[key] = {
+                "legoPos" : {
+                    "lowX" : round(value['StartX'] / self.toolLegoUnit),
+                    "lowY" : round(value['StartY'] / self.toolLegoUnit),
+                    "highX" : round((value['SlotSizeX'] + value['StartX']) / self.toolLegoUnit),
+                    "highY" : round((value['SlotSizeY'] + value['StartY']) / self.toolLegoUnit)
+                },
+                "numberX" : int(value['NumberX']),
+                "numberY" : int(value['NumberY'])
+            }
+            self.calcCells(key)
+            self.createSlotExtras(key)
+
+        file.close()
 
 # Creates an instance of SlotEditDialogue.
     def editSlot(self, name):
@@ -185,6 +223,26 @@ class SlotsIniApp:
         # Delete placeholder rectangle
         self.clearPlaceholders()
 
+    def createSlotExtras(self, key, slot = None):
+        if not slot:
+            slot = self.slots[key]
+        canvasX1, canvasY1 = self.getCanvasPos(slot['legoPos']['lowX'], slot['legoPos']['lowY'])
+        canvasX2, canvasY2 = self.getCanvasPos(slot['legoPos']['highX'], slot['legoPos']['highY'])
+        rectangle = self.drawRectangle(canvasX1, canvasY1, canvasX2, canvasY2)
+
+        # Add a new Frame on the canvas over the new slot
+        button, buttonWindow = self.drawSlotExtras(
+            key, canvasX1, canvasY1, canvasX2, canvasY2)
+
+        # Save slot in the slots array
+        slot["canvasElements"] = {
+            "button" : button,
+            "button_window" : buttonWindow,
+            "rectangle" : rectangle,
+            "lego_text" : None, #TODO
+            "rl_size" : None #TODO, real life size in mm
+        }
+
     def updateFocusedFromInputs(self, xCount, yCount, xStart, yStart, xEnd, yEnd):
         slot = self.slots[self.focusedSlot]
 
@@ -192,11 +250,13 @@ class SlotsIniApp:
         legoWidth = xEnd - xStart
         legoHeight = yEnd - yStart
 
-        cells = self.calcCells(xStart, yStart, xCount, yCount, legoWidth, legoHeight)
-        
-        if not cells:
-            tkinter.messagebox.showinfo("Fault", "Slot is not devisable by count")
-            return False
+        if xCount == 1 and yCount == 1:
+            cells = None
+        else:
+            cells = self.calcCells(xStart, yStart, xCount, yCount, legoWidth, legoHeight)
+            if not cells:
+                tkinter.messagebox.showinfo("Fault", "Slot is not devisable by count")
+                return False
         
         slot['innerSlots'] = cells
         slot['numberX'] = xCount
@@ -210,21 +270,26 @@ class SlotsIniApp:
         return True
 
 # Returns an array of lego dimension for drawing cells inside a slot
-    def calcCells(self, xStart, yStart, xCount, yCount, slotWidth, slotHeight):
-        x_spacers = (xCount - 1) * 2
-        y_spacers = (yCount - 1) * 2
+    #def calcCells(self, xStart, yStart, xCount, yCount, slotWidth, slotHeight):
+    def calcCells(self, key, slot = None):
+        if not slot:
+            slot = self.slots[key]
+        slotWidth = slot['legoPos']['highX'] - slot['legoPos']['lowX']
+        slotHeight = slot['legoPos']['highY'] - slot['legoPos']['lowY']
+        x_spacers = (slot['numberX'] - 1) * 2
+        y_spacers = (slot['numberY'] - 1) * 2
         #Check if the number is divisible in both directions
-        if (slotWidth - x_spacers) % xCount != 0 or (slotHeight - y_spacers) % yCount != 0:
+        if (slotWidth - x_spacers) % slot['numberX'] != 0 or (slotHeight - y_spacers) % slot['numberY'] != 0:
             return False
         
         # We are good, build the cell dictionaries and push to the array
         cells = []
-        x_size = (slotWidth - x_spacers) / xCount
-        y_size = (slotHeight - y_spacers) / yCount
-        x = xStart
-        for xx in range(0, xCount):
-            y = yStart
-            for yy in range(0, yCount):
+        x_size = (slotWidth - x_spacers) / slot['numberX']
+        y_size = (slotHeight - y_spacers) / slot['numberY']
+        x = slot['legoPos']['lowX']
+        for xx in range(0, slot['numberX']):
+            y = slot['legoPos']['lowY']
+            for yy in range(0, slot['numberY']):
                 cells.append({
                     "lowX" : x,
                     "highX" : x + x_size,
@@ -233,7 +298,30 @@ class SlotsIniApp:
                 })
                 y += y_size + 2
             x += x_size + 2
-        return cells
+        slot['innerSlots'] = cells
+        # x_spacers = (xCount - 1) * 2
+        # y_spacers = (yCount - 1) * 2
+        # #Check if the number is divisible in both directions
+        # if (slotWidth - x_spacers) % xCount != 0 or (slotHeight - y_spacers) % yCount != 0:
+        #     return False
+        
+        # # We are good, build the cell dictionaries and push to the array
+        # cells = []
+        # x_size = (slotWidth - x_spacers) / xCount
+        # y_size = (slotHeight - y_spacers) / yCount
+        # x = xStart
+        # for xx in range(0, xCount):
+        #     y = yStart
+        #     for yy in range(0, yCount):
+        #         cells.append({
+        #             "lowX" : x,
+        #             "highX" : x + x_size,
+        #             "lowY" : y,
+        #             "highY" : y + y_size
+        #         })
+        #         y += y_size + 2
+        #     x += x_size + 2
+        # return cells
 
     def drawSlotExtras(self, name, x1, y1, x2, y2):
         lowerX = min(x1, x2)
@@ -333,13 +421,69 @@ class SlotsIniApp:
             
             self.drawSlotExtras(key, x1, y1, x2, y2)
 
-    def parseIniFile(self):
-        #TODO
-        return
+    def getRealLifePos(self, legoX, legoY):
+        x = self.toolStartX + (legoX * self.toolLegoUnit)
+        y = self.toolStartY + (legoY * self.toolLegoUnit)
+        return x, y
+
+    def saveIniFile(self):
+        file = open(self.INI_FILE, "r+")
+        file.truncate(0)
+        # Machine Name
+        text = "[Machine_Name]\nName = {name}".format(name = self.machineName)
+        
+        # Build slots
+        for key, data in self.slots.items():
+
+            startX, startY = self.getRealLifePos(data['legoPos']['lowX'], data['legoPos']['lowY'])
+            numberX, numberY = data['numberX'], data['numberY']
+            highX, highY = self.getRealLifePos(data['legoPos']['highX'], data['legoPos']['highY'])
+            slotSizeX = highX - startX
+            slotSizeY = highY - startY
+            #we are assuming two legos will be used between cells at the moment
+            difX = slotSizeX + ( 2 * self.toolLegoUnit)
+            difY = slotSizeY + ( 2 * self.toolLegoUnit)
+
+            # Preformated format, don't mess with this
+            text += '''
+
+[{name}]
+StartX = {startX}
+StartY = {startY}
+StartZ = {startZ}
+NumberX = {numberX}
+NumberY = {numberY}
+SlotSizeX = {slotSizeX}
+SlotSizeY = {slotSizeY}
+DiffX = {difX}
+DiffY = {difY}
+'''.format(
+                name = key,
+                startX = startX,
+                startY = startY,
+                startZ = self.toolStartZ,
+                numberX = numberX,
+                numberY = numberY,
+                slotSizeX = slotSizeX,
+                slotSizeY = slotSizeY,
+                difX = difX,
+                difY = difY
+            )
+
+        print(text)
+        file.write(text)
+        file.close()
 
 
 # Initialize
     def __init__(self, root):
+
+        # Parse settings file to set tool specific parameters
+        file = open("slotApp.ini", "r")
+        for line in file:
+            setting = line.split("=")
+            setattr(self, setting[0].strip(), float(setting[1].strip()))
+        file.close()
 
         self.master = root
         pad = 70
@@ -353,7 +497,7 @@ class SlotsIniApp:
         self.btnContainer = Frame(root)
         self.btnContainer.pack()
 
-        self.button1 = Button(self.btnContainer)
+        self.button1 = Button(self.btnContainer, command = self.saveIniFile)
         self.button1["text"] = "Save"
         self.button1.pack( side = LEFT)
 
@@ -390,7 +534,15 @@ class SlotsIniApp:
         self.canvas.bind("<ButtonRelease-1>", self.leftBtnUp)
         self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
 
+        
+        
+        self.parseIniFile()
+
         self._initCanvas()
+
+    def __del__(self):
+        if self.iniFile:
+            self.iniFile.close()
 
 class SlotEditDialogue:
     def __init__(self, appInstance):
@@ -456,26 +608,6 @@ class SlotEditDialogue:
 
 
     def save(self):
-        # addedCells = False
-        # changed = False
-        # for key, value in self.inputs.items():
-        #     read = int(value['input'].get())
-        #     if read != value['value']:
-        #         if key in ['numCellsX', 'numCellsY'] and not addedCells:
-        #             # Add cells to the slot
-        #             addedCells = True
-        #             self.appInstance.addSlotCells(
-        #                 int(self.inputs['numCellsX']['input'].get()), int(self.inputs['numCellsY']['input'].get()))
-        #             changed = True
-        #         elif key in ['startX', 'endX', 'startY', 'endY']:
-        #             # Just edit the slot itself. It will re-draw correctly
-        #             self.appInstance.updateSlotLegoPos(value['key'], read)
-        #             changed = True
-        # # They changed something, re-draw the canvas    
-        # if changed:
-        #     self.appInstance.updateFocusedFromInputs()
-        #     self.appInstance._initCanvas()
-        #     self.updateInputs()
         self.appInstance.updateFocusedFromInputs(
             int(self.inputs['numCellsX']['input'].get()),
             int(self.inputs['numCellsY']['input'].get()),
