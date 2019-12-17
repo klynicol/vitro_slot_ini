@@ -198,7 +198,7 @@ class SlotsIniApp:
             limitX = self.toolTotalLegoX
 
         # Maths??, not even once!
-        xCount = math.floor(((limitX - startX) + 2) / ( cellWidth + 2))
+        xCount = min(math.floor(((limitX - startX) + 2) / ( cellWidth + 2)), numCells)
         highX = (xCount * cellWidth) + ( 2 * (xCount - 1)) + startX
         yCount = math.ceil( numCells / xCount )
         highY = (yCount * cellHeight) + ( 2 * (yCount - 1)) + startY
@@ -253,6 +253,7 @@ class SlotsIniApp:
 
         # Delete placeholder rectangle
         self.clearPlaceholders()
+        self._initCanvas()
 
     def updateFocusedFromInputs(self, slotGroup, name, xCount, yCount, xStart, yStart, xEnd, yEnd):
 
@@ -273,6 +274,8 @@ class SlotsIniApp:
                 return False
             else:
                 slot['innerSlots'] = cells
+        else: # We need to clear the inner slots, they should not exists
+            slot['innerSlots'] = []
 
         slot['numberX'] = xCount
         slot['numberY'] = yCount
