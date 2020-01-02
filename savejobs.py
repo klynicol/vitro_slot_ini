@@ -11,6 +11,7 @@ import re
 import time
 import string
 import random
+import json
 """
 @author Mark Wickline 12/13/19
 This script creates jobs in the vitro database for an order.
@@ -30,7 +31,6 @@ response = {
 	"glassZ" : None
 }
 prodPath = "\\\\Ice9-ProdFile\\3D\\Common-3D\\PRODUCTION\\AIR - NEW - V2"
-jobHash = randomString()
 
 try:
 	conn = sqlite3.connect('job.db')
@@ -44,11 +44,14 @@ fields = cgi.FieldStorage()
 jobName = fields.getvalue('name')
 qty = int(fields.getvalue('qty'))
 glass = fields.getvalue('glass')
+artNum = fields.getvalue('art')
 # vmj path so we know where to grab the file from to stick it into the DB folder.
 vmjPath = fields.getvalue('path')
 vmjPath = vmjPath.split('AIR - NEW - V2')[1]
 vmjPath = vmjPath.replace("\"", "")
 vmjPath = prodPath + vmjPath
+
+jobHash = randomString()
 
 # Extract the glass x and y from the file
 vmj = open(vmjPath, mode="r", errors='ignore')
@@ -66,7 +69,7 @@ for line in vmj:
 def createJob(name, index = None, add = None):
 	db = conn.cursor()
 	date = time.strftime('%Y-%m-%d %H:%M:%S')
-	orderName = name + "_" + jobHash
+	orderName = name + "_" + artNum + "_" + jobHash
 	if index:
 		orderName += "_" + str(index)
 	shutil.copy(
@@ -75,7 +78,7 @@ def createJob(name, index = None, add = None):
 	qry += "(ordernr_txt, jobname_txt, add_txt, glas_txt, size_txt, datecreate_dat, user_txt) "
 	qry += "VALUES ('{order}', '{name}', '{add}', '{glass}', '{size}', '{date}', '{user}')".format(
 		order=orderName,
-		name=name + "_" + jobHash,
+		name=name + "_" + artNum + "_" + jobHash,
 		add=add,
 		glass=glass,
 		size=str(round(response['glassX'])) + "/" + str(round(response['glassY'])) + "/" + str(round(response['glassZ'])),
@@ -90,4 +93,4 @@ else: # We only need to create one job
 	createJob(jobName)
 
 conn.commit()
-print(response)
+print(json.dumps(response))

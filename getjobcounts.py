@@ -3,17 +3,19 @@ print("Content-Type: application/json")
 print('Access-Control-Allow-Origin: *')
 print('')
 import sqlite3
-import cgi # Requests coming in
+import cgi
 import json
+"""
+@author Mark Wickline 12/26/19
+Get all the jobs in the job DB and groups them by job name
+so we can count how many jobs are on each order.
+"""
 
-"""
-@author Mark Wickline 12/16/19
-Query all jobs for a specific order number
-"""
 try:
 	conn = sqlite3.connect('job.db')
 except Error as e:
 	print(e)
+
 
 def query_db(query, args=(), one=False):
     cur = conn.cursor()
@@ -23,10 +25,10 @@ def query_db(query, args=(), one=False):
     cur.connection.close()
     return (r[0] if r else None) if one else r
 
-# c = conn.cursor()
-fields = cgi.FieldStorage()
-jobName = fields.getvalue('jobName')
-# qrs = c.execute("SELECT * FROM jobs WHERE jobname_txt LIKE '{order}%'".format(order=order))
-result = query_db(
-	"SELECT * FROM jobs WHERE jobname_txt LIKE '{name}%'".format(name=jobName))
+qry = '''
+SELECT COUNT(id_txt) as count, jobname_txt as jobname
+FROM jobs
+GROUP BY jobname_txt
+'''
+result = query_db(qry)
 print(json.dumps(result))
