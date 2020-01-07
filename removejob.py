@@ -21,6 +21,15 @@ jobName = fields.getvalue('job')
 c = conn.cursor()
 
 qry = """
+    SELECT `ordernr_txt`
+    FROM `jobs`
+    WHERE `jobname_txt` = '{jobName}'
+    """.format(
+        jobName = jobName
+    )
+c.execute(qry)
+
+qry = """
     DELETE FROM `jobs`
     WHERE `jobname_txt` = '{jobName}'
     """.format(

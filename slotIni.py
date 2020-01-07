@@ -48,8 +48,6 @@ class SlotsIniApp:
     focusedSlot = None
 
     boldFont = None
-    # The definitive actual size of 1 lego (mm)
-    LEGO_UNIT = 7.985
     # A one to one relation with lego unit to draw "snapping" lines
     CANVAS_UNIT = 12
     SCALE_UP = 1.1
@@ -150,23 +148,24 @@ class SlotsIniApp:
         # Iterate over newly created slots and build slots for the class
         for key, value in slots.items():
             slotGroup = int(value['AppIniLayer'])
+            startX = value['StartX'] - self.toolStartX
+            startY = value['StartY'] - self.toolStartY
             self.slots[slotGroup][key] = {
                 "legoPos" : {
-                    "lowX" : round(value['StartX'] / self.toolLegoUnit),
-                    "lowY" : round(value['StartY'] / self.toolLegoUnit),
-                    "highX" : round((value['SlotSizeX'] + value['StartX']) / self.toolLegoUnit),
-                    "highY" : round((value['SlotSizeY'] + value['StartY']) / self.toolLegoUnit)
+                    "lowX" : round(startX / self.toolLegoUnit),
+                    "lowY" : round(startY / self.toolLegoUnit),
+                    "highX" : round((((value['DiffX'] * value['NumberX']) - (2 * self.toolLegoUnit)) + startX ) / self.toolLegoUnit),
+                    "highY" : round((((value['DiffY'] * value['NumberY']) - (2 * self.toolLegoUnit)) + startY ) / self.toolLegoUnit)
                 },
                 "numberX" : int(value['NumberX']),
                 "numberY" : int(value['NumberY']),
-                "cellSizeX" : round(value['SlotSizeX'] / self.LEGO_UNIT),
-                "cellSizeY" : round(value['SlotSizeY'] / self.LEGO_UNIT)
+                "cellSizeX" : round(value['SlotSizeX'] / self.toolLegoUnit),
+                "cellSizeY" : round(value['SlotSizeY'] / self.toolLegoUnit)
             }
             if self.slots[slotGroup][key]['numberX'] > 1 or self.slots[slotGroup][key]['numberY'] > 1:
                 self.calcCells(slotGroup=slotGroup, key=key)
             else:
                 self.slots[slotGroup][key]['innerSlots'] = []
-
         file.close()
 
 # Creates an instance of SlotEditDialogue.
@@ -329,8 +328,8 @@ class SlotsIniApp:
     def drawSlotExtras(self, name, lowX, lowY, cellWidth, cellHeight):
         legoString = "{x}/{y}".format(x=cellWidth, y=cellHeight)
         rlString = "{x:.2f}/{y:.2f}".format(
-            x=cellWidth * self.LEGO_UNIT, 
-            y = cellHeight * self.LEGO_UNIT
+            x= cellWidth * self.toolLegoUnit, 
+            y = cellHeight * self.toolLegoUnit
         )
         button = Button(self.master, text = name, command = partial(self.editSlot, name), padx=15, font=self.boldFont)
         btnWindow = self.canvas.create_window( lowX + 22, lowY - 70, anchor=NW, window = button)
@@ -446,11 +445,11 @@ class SlotsIniApp:
                 startX, startY = self.getRealLifePos(data['legoPos']['lowX'], data['legoPos']['lowY'])
                 numberX, numberY = data['numberX'], data['numberY']
                 highX, highY = self.getRealLifePos(data['legoPos']['highX'], data['legoPos']['highY'])
-                slotSizeX = highX - startX
-                slotSizeY = highY - startY
                 #we are assuming two legos will be used between cells at the moment
-                difX = slotSizeX + ( 2 * self.toolLegoUnit)
-                difY = slotSizeY + ( 2 * self.toolLegoUnit)
+                difX = ((highX - startX) + ( 2 * self.toolLegoUnit )) / numberX
+                difY = ((highY - startY) + ( 2 * self.toolLegoUnit )) / numberY
+                slotSizeX = difX - ( 2 * self.toolLegoUnit )
+                slotSizeY = difY - ( 2 * self.toolLegoUnit )
 
                 # Preformated format, don't mess with this
                 text += '''
