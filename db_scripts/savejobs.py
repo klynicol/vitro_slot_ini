@@ -48,6 +48,7 @@ artNum = fields.getvalue('art')
 # vmj path so we know where to grab the file from to stick it into the DB folder.
 vmjPath = fields.getvalue('path')
 vmjPath = vmjPath.split('AIR - NEW - V2')[1]
+vmjFileName = vmjPath.split('\\')[-1].replace("\"", "")
 vmjPath = vmjPath.replace("\"", "")
 vmjPath = prodPath + vmjPath
 
@@ -75,15 +76,16 @@ def createJob(name, index = None, add = None):
 	shutil.copy(
 		vmjPath, prodPath + "\\DB SAVES\\" + orderName + ".vmj")
 	qry = "INSERT INTO jobs "
-	qry += "(ordernr_txt, jobname_txt, add_txt, glas_txt, size_txt, datecreate_dat, user_txt) "
-	qry += "VALUES ('{order}', '{name}', '{add}', '{glass}', '{size}', '{date}', '{user}')".format(
+	qry += "(ordernr_txt, jobname_txt, add_txt, glas_txt, size_txt, datecreate_dat, user_txt, run_file_name) "
+	qry += "VALUES ('{order}', '{name}', '{add}', '{glass}', '{size}', '{date}', '{user}', '{runFileName}')".format(
 		order=orderName,
 		name=name + "_" + artNum + "_" + jobHash,
 		add=add,
 		glass=glass,
 		size=str(round(response['glassX'])) + "/" + str(round(response['glassY'])) + "/" + str(round(response['glassZ'])),
 		date=date,
-		user='savejobs')
+		user='savejobs',
+        runFileName = vmjFileName)
 	db.execute(qry)
 
 if qty > 1:

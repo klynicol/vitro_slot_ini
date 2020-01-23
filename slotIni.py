@@ -4,18 +4,26 @@ import random
 import time
 import re
 import copy
+import requests
+import json
 from functools import partial
 from tkinter import *
 import tkinter.font
 import tkinter.simpledialog
 import tkinter.messagebox
 
-# Define my class
+'''
+@author Mark Wickline 2019-11-01
 
+Small application that generates slots.ini files for vitro software.
+Also pushes slot data into OT database `vitrodb_slots` table, to be used
+with the OT/vitro module.
+'''
 
 class SlotsIniApp:
 
     iniFile = None
+    otDatabaseLink  = 'http://ot.crystal-d.com/ot/index.php/vitro/saveSlots'
 
     # Positions and actions
     canvasAction = "draw_slot"
@@ -199,8 +207,21 @@ class SlotsIniApp:
         # Maths??, not even once!
         xCount = min(math.floor(((limitX - startX) + 2) / ( cellWidth + 2)), numCells)
         highX = (xCount * cellWidth) + ( 2 * (xCount - 1)) + startX
-        yCount = math.ceil( numCells / xCount )
-        highY = (yCount * cellHeight) + ( 2 * (yCount - 1)) + startY
+
+        def calcY():
+            yCount = math.ceil( numCells / xCount )
+            highY = (yCount * cellHeight) + ( 2 * (yCount - 1)) + startY
+            return yCount, highY
+
+        #Initial Y calculations.   
+        yCount, highY = calcY()
+            
+        #If high Y is greater than the bed allows, decrement the yCount and calculate again
+        #Until we are good.
+        while highY > self.toolTotalLegoY:
+            numCells -= xCount
+            yCount, highY = calcY()
+            
 
         if highY > self.toolTotalLegoY:
             return "Slot cannot fit in the Y direction"
@@ -245,7 +266,6 @@ class SlotsIniApp:
             },
             "numberX" : 1,
             "numberY" : 1,
-            "innerSlots" : [],
             "cellSizeX" : max(legoX1, legoX2) - min(legoX1, legoX2),
             "cellSizeY" : max(legoY1, legoY2) - min(legoY1, legoY2)
         }
@@ -294,6 +314,7 @@ class SlotsIniApp:
             key = self.focusedSlot
         if not slot:
             slot = self.slots[slotGroup][key]
+
         slotWidth = slot['legoPos']['highX'] - slot['legoPos']['lowX']
         slotHeight = slot['legoPos']['highY'] - slot['legoPos']['lowY']
         x_spacers = (slot['numberX'] - 1) * 2
@@ -303,7 +324,7 @@ class SlotsIniApp:
             tkinter.messagebox.showinfo("Fault", "Slot is not devisable by count")
             return False
         
-        # We are good, build the cell dictionaries and push to the array
+        # We are good, build the cell dictionaries and push to a new cells array
         cells = []
         x_size = (slotWidth - x_spacers) / slot['numberX']
         y_size = (slotHeight - y_spacers) / slot['numberY']
@@ -320,8 +341,8 @@ class SlotsIniApp:
                 y += y_size + 2
             x += x_size + 2
         slot['innerSlots'] = cells
-        slot['cellSizeX'] = x_size
-        slot['cellSizeY'] = y_size
+        slot['cellSizeX'] = x_size #this is an update
+        slot['cellSizeY'] = y_size #this is an update
         return cells
 
 # Stuff drawn on the canvas that is associated with the slot.
@@ -359,8 +380,8 @@ class SlotsIniApp:
             x1, y1, x2, y2, fill=bkgColor, outline=border, width=borderWidth, stipple=stipple)
 
 # Draw a simple line, nothing fancy
-    def drawLine(self, x1, y1, x2, y2):
-        self.canvas.create_line(x1, y1, x2, y2)
+    def drawLine(self, x1, y1, x2, y2, fill="black"):
+        self.canvas.create_line(x1, y1, x2, y2, fill=fill)
 
 
 # Draw the "background" lego grid based on current scale
@@ -418,7 +439,7 @@ class SlotsIniApp:
 
             self.drawRectangle(x1, y1, x2, y2)
 
-            if value['innerSlots']:
+            if 'innerSlots' in value and value['innerSlots']:
                 for inner in value['innerSlots']:
                     ix1, iy1 = self.getCanvasPos(inner['lowX'], inner['lowY'])
                     ix2, iy2 = self.getCanvasPos(inner['highX'], inner['highY'])
@@ -438,9 +459,21 @@ class SlotsIniApp:
         text = "[Machine_Name]\nName = {name}".format(name = self.machineName)
         
         # Build slots
+        otDatabase = { "tool" : self.machineName, "slots" : [] }
         group = 0
         for slotGroup in self.slots:
             for key, data in slotGroup.items():
+
+                #Dictionary entry for order tracker database.
+                otDatabase['slots'].append({
+                    'slot_name' : key,
+                    'cell_width' : data['cellSizeX'],
+                    'cell_height' : data['cellSizeY'],
+                    'cell_count_x' : data['numberX'],
+                    'cell_count_y' : data['numberY'],
+                    'start_x' : data['legoPos']['lowX'],
+                    'start_y' : data['legoPos']['lowY']
+                })
 
                 startX, startY = self.getRealLifePos(data['legoPos']['lowX'], data['legoPos']['lowY'])
                 numberX, numberY = data['numberX'], data['numberY']
@@ -482,7 +515,15 @@ AppIniLayer = {layer}
 
         file.write(text)
         file.close()
-
+        
+        #Make a call to the order tracker database to store the slots in `vitrobd_slots`
+        response = requests.post(self.otDatabaseLink, data=json.dumps(otDatabase))
+        if(response.headers.get('content-type') == 'application/json'):
+            response_data = response.json()
+            if not response_data['status']:
+                tkinter.messagebox.showinfo("OT Connection", "Something went wrong while updating order tracker, please contact Mark Wickline!")
+        else:
+            tkinter.messagebox.showinfo("OT Connection", "Something went wrong while updating order tracker, please contact Mark Wickline!")
 
 # Initialize
     def __init__(self, root):
@@ -582,28 +623,36 @@ class SlotEditDialogue:
 
         self.inputs = {
             "numCellsX" : {
-                "name" : "X Number Cells"
+                "name" : "X Number Cells",
+                "type" : "entry"
             },
             "numCellsY" : {
-                "name" : "Y Number Cells"
+                "name" : "Y Number Cells",
+                "type" : "entry"
             },
             "legoWidth" : {
-                "name" : "Cell Lego Width"
+                "name" : "Slot Width",
+                "type" : "label"
             },
             "legoHeight" : {
-                "name" : "Cell Lego Height"
+                "name" : "Slot Height",
+                "type" : "label"
             },
             "startX" : {
-                "name" : "X Start"
+                "name" : "X Start",
+                "type" : "entry"
             },
             "endX" : {
-                "name" : "X End"
+                "name" : "X End",
+                "type" : "entry"
             },
             "startY" : {
-                "name" : "Y Start"
+                "name" : "Y Start",
+                "type" : "entry"
             },
             "endY" : {
                 "name" : "Y End",
+                "type" : "entry"
             }
         }
 
@@ -634,8 +683,12 @@ class SlotEditDialogue:
         self.inputs['startY']['value'] = slot['legoPos']['lowY']
         self.inputs['endY']['value'] = slot['legoPos']['highY']
         for key, value in self.inputs.items():
+            if value['type'] == 'label':
+                value['input'].config(state=NORMAL)
             value['input'].delete(0, END)
-            value['input'].insert(0, value['value'])
+            value['input'].insert('end', value['value'])
+            if value['type'] == 'label':
+                value['input'].config(state="readonly")
 
 
     def save(self):
@@ -661,9 +714,9 @@ class SlotEditDialogue:
 
     def createInput(self, name, row):
         Label(self.window, text = name).grid(row = row)
-        entry = Entry(self.window)
-        entry.grid(row = row, column = 1)
-        return entry
+        elem = Entry(self.window)
+        elem.grid( row = row, column = 1)
+        return elem
 
 class SlotCreateDialogue:
     def __init__(self, appInstance):
