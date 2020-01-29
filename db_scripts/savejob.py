@@ -71,14 +71,15 @@ def createJob(name, index = None, add = None):
 	db = conn.cursor()
 	date = time.strftime('%Y-%m-%d %H:%M:%S')
 	orderName = name + "_" + artNum + "_" + jobHash
+	orderNameIndex = orderName
 	if index:
-		orderName += "_" + str(index)
+		orderNameIndex += "_" + str(index)
 	shutil.copy(
 		vmjPath, prodPath + "\\DB SAVES\\" + orderName + ".vmj")
 	qry = "INSERT INTO jobs "
 	qry += "(ordernr_txt, jobname_txt, add_txt, glas_txt, size_txt, datecreate_dat, user_txt, run_file_name) "
 	qry += "VALUES ('{order}', '{name}', '{add}', '{glass}', '{size}', '{date}', '{user}', '{runFileName}')".format(
-		order=orderName,
+		order=orderNameIndex,
 		name=name + "_" + artNum + "_" + jobHash,
 		add=add,
 		glass=glass,

@@ -461,7 +461,7 @@ class SlotsIniApp:
         # Build slots
         otDatabase = { "tool" : self.machineName, "slots" : [] }
         group = 0
-        for slotGroup in self.slots:
+        for slotGroupKey, slotGroup in self.slots:
             for key, data in slotGroup.items():
 
                 #Dictionary entry for order tracker database.
@@ -472,7 +472,8 @@ class SlotsIniApp:
                     'cell_count_x' : data['numberX'],
                     'cell_count_y' : data['numberY'],
                     'start_x' : data['legoPos']['lowX'],
-                    'start_y' : data['legoPos']['lowY']
+                    'start_y' : data['legoPos']['lowY'],
+                    'layer' : slotGroupKey
                 })
 
                 startX, startY = self.getRealLifePos(data['legoPos']['lowX'], data['legoPos']['lowY'])

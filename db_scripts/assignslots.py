@@ -11,14 +11,25 @@ tool = fields.getvalue('tool')
 cell = fields.getvalue('cell')
 ordernr = fields.getvalue('ordernr')
 
-conn.query_db(
+
+cursor = conn.conn.cursor()
+cursor.execute(
 '''
     UPDATE `jobs`
     SET
-    `dateslot_date` = NOW(),
-    `unit_txt` = '{}',
-    `slot_txt` = '{}'
-    WHERE `ordernr_txt` = '{}'
-'''.format(tool, cell, ordernr)
+    `dateslot_dat` = datetime('now'),
+    `unit_txt` = '{unit}',
+    `slot_txt` = '{slot}'
+    WHERE `ordernr_txt` = '{ord}'
+'''.format(unit=tool, slot=cell, ord=ordernr)
 )
-print(json.dumps({"status": True}))
+conn.conn.commit()
+cursor.connection.close()
+print(json.dumps({
+	"status": True,
+	"data" : {
+		"ordernr" : ordernr,
+		"cell" : cell,
+		"tool" : tool
+	}
+}))

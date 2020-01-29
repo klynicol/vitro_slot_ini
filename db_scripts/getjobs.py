@@ -1,28 +1,13 @@
 from base import *
-conn = Connect()
 
 """
-@author Mark Wickline 2020-01-05
+@author Mark Wickline 12/16/19
 Query all jobs for a specific order number
 """
 
 jobName = fields.getvalue('jobName')
 
 result = conn.query_db(
-	'''
-    SELECT 
-        *, 
-        COUNT(id_txt) AS count,
-        COALESCE((SELECT 
-            COUNT(id_txt)
-            FROM jobs
-            WHERE jobname_txt LIKE '{name}%'
-            AND slot_txt IS NOT NULL
-            GROUP BY jobname_txt),0) AS slots_assigned
-        FROM jobs
-        WHERE jobname_txt LIKE '{name}%'
-        GROUP BY jobname_txt
-	'''.format(name=jobName)
-)
-
+	"SELECT * FROM jobs WHERE jobname_txt LIKE '{name}%'".format(name=jobName))
+conn.close()
 print(json.dumps(result))

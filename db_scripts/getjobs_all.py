@@ -14,4 +14,5 @@ result = conn.query_db(
     datedone_dat IS NULL
     """
 )
+conn.close()
 print(json.dumps(result))

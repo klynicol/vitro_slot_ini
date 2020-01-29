@@ -1,5 +1,4 @@
 from base import *
-conn = Connect()
 
 """
 @author Mark Wickline 2019-12-26
@@ -14,4 +13,5 @@ FROM jobs
 GROUP BY jobname_txt
 '''
 result = conn.query_db(qry)
+conn.close()
 print(json.dumps(result))
