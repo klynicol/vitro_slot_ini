@@ -1,4 +1,6 @@
 import sys
+import shutil
+import os
 import math
 import random
 import time
@@ -6,6 +8,7 @@ import re
 import copy
 import requests
 import json
+from datetime import datetime
 from functools import partial
 from tkinter import *
 import tkinter.font
@@ -22,7 +25,7 @@ with the OT/vitro module.
 
 class SlotsIniApp:
 
-    iniFile = None
+    iniFilePath = None
     otDatabaseLink  = 'http://ot.crystal-d.com/ot/index.php/vitro/saveSlots'
 
     # Positions and actions
@@ -136,7 +139,10 @@ class SlotsIniApp:
 
 # Opens the slots.ini file and transposes the info into this.slots
     def parseIniFile(self):
-        file = open(self.INI_FILE, "r")
+
+        this_dir = os.path.dirname(os.path.realpath(__file__))
+        self.iniFilePath = os.path.join(this_dir, self.INI_FILE)
+        file = open(self.iniFilePath, "r")
 
         block = None
         slots = {} # Temp Bin to throw slot information into
@@ -175,6 +181,10 @@ class SlotsIniApp:
             else:
                 self.slots[slotGroup][key]['innerSlots'] = []
         file.close()
+        #Make a backup of the original file with date stamp.
+        today = datetime.now()
+        backupFileName = "slots_" + today.strftime("%Y%m%d_%H_%M_%S") + ".ini"
+        shutil.copyfile(self.INI_FILE, backupFileName)
 
 # Creates an instance of SlotEditDialogue.
     def editSlot(self, name):
@@ -275,33 +285,21 @@ class SlotsIniApp:
         self._initCanvas()
 
     def updateFocusedFromInputs(self, slotGroup, name, xCount, yCount, xStart, yStart, xEnd, yEnd):
-
-        slot = self.slots[slotGroup][name]
+        temp = {}
+        temp['numberX'] = xCount
+        temp['numberY'] = yCount
+        temp['legoPos'] = {}
+        temp['legoPos']['lowX'] = xStart
+        temp['legoPos']['highX'] = xEnd
+        temp['legoPos']['lowY'] = yStart
+        temp['legoPos']['highY'] = yEnd
+        temp['innerSlots'] = []
 
         if xCount > 1 or yCount > 1:
-            # Create a temporary slot so calc Cells has something to work with if we get to that point
-            temp = {}
-            temp['numberX'] = xCount
-            temp['numberY'] = yCount
-            temp['legoPos'] = {}
-            temp['legoPos']['lowX'] = xStart
-            temp['legoPos']['highX'] = xEnd
-            temp['legoPos']['lowY'] = yStart
-            temp['legoPos']['highY'] = yEnd
-            cells = self.calcCells(slot = temp)
-            if not cells: 
+            if not self.calcCells(slot = temp):
                 return False
-            else:
-                slot['innerSlots'] = cells
-        else: # We need to clear the inner slots, they should not exists
-            slot['innerSlots'] = []
 
-        slot['numberX'] = xCount
-        slot['numberY'] = yCount
-        slot['legoPos']['lowX'] = xStart
-        slot['legoPos']['highX'] = xEnd
-        slot['legoPos']['lowY'] = yStart
-        slot['legoPos']['highY'] = yEnd
+        self.slots[slotGroup][name] = temp
 
         self._initCanvas()
         return True
@@ -453,7 +451,7 @@ class SlotsIniApp:
         return x, y
 
     def saveIniFile(self):
-        file = open(self.INI_FILE, "r+")
+        file = open(self.iniFilePath, 'w')
         file.truncate(0)
         # Machine Name
         text = "[Machine_Name]\nName = {name}".format(name = self.machineName)
@@ -461,7 +459,7 @@ class SlotsIniApp:
         # Build slots
         otDatabase = { "tool" : self.machineName, "slots" : [] }
         group = 0
-        for slotGroupKey, slotGroup in self.slots:
+        for slotGroup in self.slots:
             for key, data in slotGroup.items():
 
                 #Dictionary entry for order tracker database.
@@ -473,7 +471,7 @@ class SlotsIniApp:
                     'cell_count_y' : data['numberY'],
                     'start_x' : data['legoPos']['lowX'],
                     'start_y' : data['legoPos']['lowY'],
-                    'layer' : slotGroupKey
+                    'layer' : group
                 })
 
                 startX, startY = self.getRealLifePos(data['legoPos']['lowX'], data['legoPos']['lowY'])
@@ -608,10 +606,6 @@ AppIniLayer = {layer}
         self.parseIniFile()
 
         self._initCanvas()
-
-    def __del__(self):
-        if self.iniFile:
-            self.iniFile.close()
 
 class SlotEditDialogue:
     def __init__(self, appInstance):

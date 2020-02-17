@@ -30,7 +30,7 @@ response = {
 	"glassY" : None,
 	"glassZ" : None
 }
-prodPath = "\\\\Ice9-ProdFile\\3D\\Common-3D\\PRODUCTION\\AIR - NEW - V2"
+prodPath = "\\\\Ice9-ProdFile\\3D\\Common-3D\\PRODUCTION"
 
 try:
 	conn = sqlite3.connect('job.db')
@@ -47,7 +47,7 @@ glass = fields.getvalue('glass')
 artNum = fields.getvalue('art')
 # vmj path so we know where to grab the file from to stick it into the DB folder.
 vmjPath = fields.getvalue('path')
-vmjPath = vmjPath.split('AIR - NEW - V2')[1]
+vmjPath = vmjPath.split('PRODUCTION')[1]
 vmjFileName = vmjPath.split('\\')[-1].replace("\"", "")
 vmjPath = vmjPath.replace("\"", "")
 vmjPath = prodPath + vmjPath
@@ -75,7 +75,7 @@ def createJob(name, index = None, add = None):
 	if index:
 		orderNameIndex += "_" + str(index)
 	shutil.copy(
-		vmjPath, prodPath + "\\DB SAVES\\" + orderName + ".vmj")
+		vmjPath, prodPath + "\\AIR - NEW - V2\\DB SAVES\\" + orderName + ".vmj")
 	qry = "INSERT INTO jobs "
 	qry += "(ordernr_txt, jobname_txt, add_txt, glas_txt, size_txt, datecreate_dat, user_txt, run_file_name) "
 	qry += "VALUES ('{order}', '{name}', '{add}', '{glass}', '{size}', '{date}', '{user}', '{runFileName}')".format(
